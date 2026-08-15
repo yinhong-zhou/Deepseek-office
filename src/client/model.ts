@@ -177,7 +177,7 @@ export function deriveAgentModel(summary: any, snapshot: any, idleEpoch: number)
   const pendingInteraction = summary?.pendingInteraction ?? (Array.isArray(snapshot?.pending) ? snapshot.pending[0] : undefined)
   const running = Boolean(summary?.running ?? snapshot?.running)
   const completed = Boolean(summary?.completed)
-  const isSubagent = summary?.origin === 'subagent' || summary?.parentId !== undefined || snapshot?.subagent !== null
+  const isSubagent = summary?.origin === 'subagent' || summary?.parentId !== undefined || (snapshot?.subagent !== undefined && snapshot?.subagent !== null)
   let zone: OfficeZone = 'desk'
   let pose: AgentPose = 'idle'
   let statusLabel = 'Idle'
