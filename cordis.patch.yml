@@ -1,0 +1,4 @@
+# Mount DeepSeek-office into a DeepSeek Harness profile.
+- insert:
+    - id: deepseek-office
+      name: 'deepseek-office'
