@@ -3,9 +3,7 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "types": [],
-    "declarationDir": "lib/types/client",
-    "outDir": "lib/client"
+    "types": []
   },
   "include": ["src/client"],
   "exclude": []
