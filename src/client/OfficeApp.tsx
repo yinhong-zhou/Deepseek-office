@@ -1,16 +1,20 @@
 import React, { type CSSProperties, type ReactNode } from 'react'
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import { Animal, type AgentPose } from './Animal.tsx'
+import { Animal, type AgentActivity, type AgentPose } from './Animal.tsx'
 import { deriveAgentModel, type AgentModel, type OfficeZone } from './model.ts'
 import styles from './Office.module.css'
+import polish from './OfficePolish.module.css'
 
 const MAX_DESKS = 6
-const DESKS = [
+
+type Point = { x: number; y: number }
+
+const DESKS: Point[] = [
   { x: 34, y: 49 }, { x: 50, y: 47 }, { x: 66, y: 49 },
   { x: 39, y: 70 }, { x: 55, y: 72 }, { x: 71, y: 70 },
 ]
 
-const ZONES: Record<Exclude<OfficeZone, 'desk'>, { x: number; y: number }> = {
+const ZONES: Record<Exclude<OfficeZone, 'desk'>, Point> = {
   search: { x: 15, y: 28 },
   terminal: { x: 51, y: 29 },
   collab: { x: 85, y: 28 },
@@ -18,7 +22,10 @@ const ZONES: Record<Exclude<OfficeZone, 'desk'>, { x: number; y: number }> = {
   boss: { x: 50, y: 93 },
 }
 
-const SHARED_OFFSETS = [
+const NEW_HIRE_ENTRY: Point = { x: 94, y: 20 }
+const COLLAB_WELCOME: Point = { x: 87, y: 29 }
+
+const SHARED_OFFSETS: Point[] = [
   { x: -4.4, y: 0 }, { x: -2.6, y: 1 }, { x: -0.9, y: 0 },
   { x: 0.9, y: 1 }, { x: 2.6, y: 0 }, { x: 4.4, y: 1 },
 ]
@@ -45,19 +52,63 @@ function useSessionSnapshot(ctx: ClientContext, id: SessionId): any {
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
-function useTravelPose(zone: OfficeZone, destinationPose: AgentPose): { pose: AgentPose; moving: boolean } {
-  const previousZone = React.useRef(zone)
-  const [moving, setMoving] = React.useState(false)
+function corridorPoint(from: Point, to: Point): Point {
+  const topTrip = from.y < 38 || to.y < 38
+  const bottomTrip = from.y > 82 || to.y > 82
+  return { x: 50, y: topTrip ? 36 : bottomTrip ? 82 : 60 }
+}
+
+function samePoint(a: Point, b: Point): boolean {
+  return Math.abs(a.x - b.x) < 0.05 && Math.abs(a.y - b.y) < 0.05
+}
+
+function useAgentTravel(target: Point, zone: OfficeZone, isSubagent: boolean): { point: Point; moving: boolean; onboarding: boolean } {
+  const [point, setPoint] = React.useState<Point>(() => isSubagent ? NEW_HIRE_ENTRY : target)
+  const pointRef = React.useRef(point)
+  const zoneRef = React.useRef(zone)
+  const firstRef = React.useRef(true)
+  const [moving, setMoving] = React.useState(isSubagent)
+  const [onboarding, setOnboarding] = React.useState(isSubagent)
+
+  React.useEffect(() => { pointRef.current = point }, [point])
 
   React.useEffect(() => {
-    if (previousZone.current === zone) return
-    previousZone.current = zone
-    setMoving(true)
-    const timer = window.setTimeout(() => setMoving(false), 720)
-    return () => window.clearTimeout(timer)
-  }, [zone])
+    const timers: number[] = []
+    const later = (fn: () => void, ms: number) => {
+      const timer = window.setTimeout(fn, ms)
+      timers.push(timer)
+    }
 
-  return { pose: moving ? 'walking' : destinationPose, moving }
+    if (firstRef.current) {
+      firstRef.current = false
+      zoneRef.current = zone
+      if (isSubagent) {
+        setMoving(true)
+        later(() => setPoint(COLLAB_WELCOME), 80)
+        later(() => setPoint(corridorPoint(COLLAB_WELCOME, target)), 560)
+        later(() => setPoint(target), 1030)
+        later(() => { setMoving(false); setOnboarding(false) }, 1580)
+      } else {
+        setPoint(target)
+      }
+      return () => timers.forEach(timer => window.clearTimeout(timer))
+    }
+
+    const from = pointRef.current
+    if (zoneRef.current === zone && samePoint(from, target)) return undefined
+    zoneRef.current = zone
+    setMoving(true)
+    setOnboarding(false)
+
+    const corridor = corridorPoint(from, target)
+    later(() => setPoint(corridor), 30)
+    later(() => setPoint(target), 470)
+    later(() => setMoving(false), 940)
+
+    return () => timers.forEach(timer => window.clearTimeout(timer))
+  }, [isSubagent, target.x, target.y, zone])
+
+  return { point, moving, onboarding }
 }
 
 function statusDotClass(tone: AgentModel['statusTone']): string {
@@ -93,12 +144,18 @@ function WorkflowCard({ model, onOpen }: { model: AgentModel; onOpen: () => void
   </button>
 }
 
-function ActorBadge({ pose, zone }: { pose: AgentPose; zone: OfficeZone }) {
+function ActorBadge({ pose, zone, onboarding }: { pose: AgentPose; zone: OfficeZone; onboarding: boolean }) {
+  if (onboarding) return <span className={`${styles.speechBubble} ${polish.newHireBubble}`}>新员工报到!</span>
   if (pose === 'error') return <span className={`${styles.actorBubble} ${styles.errorBubble}`}>!</span>
   if (pose === 'completed') return <span className={`${styles.actorBubble} ${styles.doneBubble}`}>✓</span>
   if (zone === 'boss') return <span className={styles.speechBubble}>老板，我需要你</span>
   if (zone === 'break') return <span className={styles.speechBubble}>摸会儿鱼 ☕</span>
+  if (zone === 'collab') return <span className={styles.speechBubble}>来个人帮忙</span>
   return null
+}
+
+function activityForZone(zone: OfficeZone): AgentActivity {
+  return zone === 'desk' ? 'desk' : zone
 }
 
 function AgentLive({ ctx, summary, deskIndex, idleEpoch }: { ctx: ClientContext; summary: any; deskIndex: number; idleEpoch: number }) {
@@ -108,39 +165,50 @@ function AgentLive({ ctx, summary, deskIndex, idleEpoch }: { ctx: ClientContext;
   const desk = DESKS[deskIndex] ?? DESKS[0]!
   const destination = model.zone === 'desk' ? desk : ZONES[model.zone]
   const slot = SHARED_OFFSETS[idSlot(model.id)] ?? { x: 0, y: 0 }
-  const zoneOffset = model.zone === 'desk' ? { x: 0, y: 0 } : slot
-  const travel = useTravelPose(model.zone, model.pose)
-  const deskFacing = travel.pose === 'thinking' || travel.pose === 'idleDesk'
-  const facing = travel.moving ? 'front' : model.zone === 'desk' && deskFacing ? 'back' : 'front'
+  const target = model.zone === 'desk' ? destination : { x: destination.x + slot.x, y: destination.y + slot.y }
+  const travel = useAgentTravel(target, model.zone, model.isSubagent)
+  const renderedPose: AgentPose = travel.moving ? 'walking' : model.pose
+  const activity = activityForZone(model.zone)
+  const deskFacing = renderedPose === 'thinking' || renderedPose === 'idleDesk'
+  const facing = travel.moving ? 'front' : model.zone === 'desk' && deskFacing ? 'back' : model.zone === 'search' || model.zone === 'terminal' ? 'back' : 'front'
+  const atDesk = model.zone === 'desk' && !travel.moving
+  const actorZ = atDesk ? 250 + Math.round(desk.y) : 680 + Math.round(travel.point.y)
 
   return <>
     <div className={styles.workflowAnchor} style={{ left: `${desk.x}%`, top: `${desk.y - 16}%` }}>
       <WorkflowCard model={model} onOpen={() => ctx.sessions.open(id)} />
     </div>
     <button
-      className={`${styles.agentActor} ${styles[`zone_${model.zone}`]} ${travel.moving ? styles.actorMoving : ''}`}
+      className={`${styles.agentActor} ${styles[`zone_${model.zone}`]} ${travel.moving ? styles.actorMoving : ''} ${polish.actorRoute} ${travel.onboarding ? polish.actorOnboarding : ''}`}
       style={{
-        left: `${destination.x + zoneOffset.x}%`,
-        top: `${destination.y + zoneOffset.y}%`,
+        left: `${travel.point.x}%`,
+        top: `${travel.point.y}%`,
+        zIndex: actorZ,
         '--accent': model.accent,
       } as CSSProperties}
       onClick={() => ctx.sessions.open(id)}
       title={`${model.name} · ${model.statusLabel}`}
       type="button"
     >
-      <Animal species={model.species} accent={model.accent} pose={travel.pose} facing={facing} compact={model.zone === 'desk'} />
-      <ActorBadge pose={travel.pose} zone={model.zone} />
-      {travel.pose === 'completed' ? <span className={styles.confetti} aria-hidden="true">✦ · ✧ · ✦</span> : null}
-      {model.zone !== 'desk' ? <span className={styles.actorName}>{model.name}</span> : null}
+      <Animal species={model.species} accent={model.accent} pose={renderedPose} activity={activity} facing={facing} compact={atDesk} />
+      <ActorBadge pose={renderedPose} zone={model.zone} onboarding={travel.onboarding} />
+      {renderedPose === 'completed' ? <span className={styles.confetti} aria-hidden="true">✦ · ✧ · ✦</span> : null}
+      {model.zone !== 'desk' || travel.onboarding ? <span className={styles.actorName}>{model.name}</span> : null}
     </button>
   </>
 }
 
-function Desk({ index }: { index: number }) {
+function DeskBack({ index }: { index: number }) {
   const desk = DESKS[index] ?? DESKS[0]!
-  return <div className={styles.desk} style={{ left: `${desk.x}%`, top: `${desk.y}%` }}>
+  return <div className={`${polish.deskLayer} ${polish.deskBack}`} style={{ left: `${desk.x}%`, top: `${desk.y}%`, zIndex: 180 + Math.round(desk.y) }}>
     <div className={styles.deskShadow} />
     <div className={styles.chair}><span /></div>
+  </div>
+}
+
+function DeskFront({ index }: { index: number }) {
+  const desk = DESKS[index] ?? DESKS[0]!
+  return <div className={`${polish.deskLayer} ${polish.deskFront}`} style={{ left: `${desk.x}%`, top: `${desk.y}%`, zIndex: 320 + Math.round(desk.y) }}>
     <div className={styles.deskTop}>
       <div className={styles.monitor}><span /><i /></div>
       <div className={styles.keyboard} />
@@ -148,6 +216,7 @@ function Desk({ index }: { index: number }) {
       <div className={styles.deskPlant}><i /><i /><i /></div>
       <div className={styles.deskPaper} />
     </div>
+    <div className={polish.deskApron} />
     <div className={styles.deskLegLeft} /><div className={styles.deskLegRight} />
   </div>
 }
@@ -180,6 +249,7 @@ function TerminalBoard() {
 function CollaborationZone() {
   return <section className={`${styles.zoneCard} ${styles.collabStation}`} aria-label="Collaboration zone">
     <div className={styles.zoneHeading}><span className={styles.zoneIcon}>+</span><div><b>Collaboration</b><small>subagent · fork · spawn</small></div></div>
+    <div className={polish.newHireDoor}><span>NEW HIRE</span><i>↘</i></div>
     <div className={styles.collabWall}>
       <div className={styles.stickyA} /><div className={styles.stickyB} /><div className={styles.stickyC} />
       <span className={styles.collabLineA} /><span className={styles.collabLineB} />
@@ -202,13 +272,14 @@ function BreakZone() {
 
 function BossZone() {
   return <section className={`${styles.zoneCard} ${styles.bossStation}`} aria-label="Boss approval area">
+    <div className={polish.bossLookCone} />
     <div className={styles.bossDesk}>
       <div className={styles.bossMonitor}><i /></div>
       <div className={styles.bossLamp}><span /></div>
       <div className={styles.bossPaper} />
     </div>
     <div className={styles.bossCaption}><b>Boss / Approval</b><small>ask_user · permission</small></div>
-    <div className={styles.youMarker}><span>YOU</span><i>↑ agents look here</i></div>
+    <div className={styles.youMarker}><span>YOU</span><i>↑ agents look up at you</i></div>
   </section>
 }
 
@@ -219,7 +290,8 @@ function RoomDecor() {
     <div className={styles.wallClock}><i /><b /></div>
     <div className={styles.floorGrid} />
     <div className={styles.centerRug} />
-    <div className={styles.routeLine} />
+    <div className={polish.mainCorridor} />
+    <div className={polish.crossCorridor} />
     <div className={styles.tinyPlantLeft}><i /><i /><i /></div>
     <div className={styles.tinyPlantRight}><i /><i /><i /></div>
   </>
@@ -267,8 +339,9 @@ export function OfficeApp({ ctx }: { ctx: ClientContext }) {
     <main className={styles.officeRoom}>
       <RoomDecor />
       <SearchStation /><TerminalBoard /><CollaborationZone /><BreakZone /><BossZone />
-      {summaries.map((_, index) => <Desk key={`desk-${index}`} index={index} />)}
+      {summaries.map((_, index) => <DeskBack key={`desk-back-${index}`} index={index} />)}
       {summaries.map((summary, index) => <AgentLive key={String(summary.id)} ctx={ctx} summary={summary} deskIndex={index} idleEpoch={idleEpoch} />)}
+      {summaries.map((_, index) => <DeskFront key={`desk-front-${index}`} index={index} />)}
       {summaries.length === 0 ? <div className={styles.emptyOffice}>
         <div className={styles.emptyMascot}>☕</div><b>办公室今天很安静</b><span>创建或打开一个会话，第一位牛马羊员工就会来上班。</span>
       </div> : null}
