@@ -25,7 +25,7 @@ export interface AgentModel {
   isSubagent: boolean
 }
 
-const ACCENTS = ['#4a6cf7', '#27a7a0', '#6f8f3d', '#f29a3f', '#8d6bd8', '#e26d7d', '#2e83c7']
+const ACCENTS = ['#4d6ff2', '#2d9a91', '#728f4c', '#e99343', '#8b70d5', '#db6e82', '#2f86c7']
 const SPECIES: Species[] = ['cow', 'horse', 'sheep']
 
 function hash(input: string): number {
@@ -41,7 +41,7 @@ export function identityFor(id: string): { species: Species; accent: string } {
   const h = hash(id)
   return {
     species: SPECIES[h % SPECIES.length] ?? 'cow',
-    accent: ACCENTS[Math.floor(h / 7) % ACCENTS.length] ?? '#4a6cf7',
+    accent: ACCENTS[Math.floor(h / 7) % ACCENTS.length] ?? '#4d6ff2',
   }
 }
 
@@ -58,8 +58,7 @@ function textFromContent(content: readonly unknown[] | undefined): string {
 
 function short(value: string, max = 56): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
-  if (normalized.length <= max) return normalized
-  return `${normalized.slice(0, max - 1)}…`
+  return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1)}…`
 }
 
 function parseArgs(raw: string | undefined): Record<string, unknown> {
@@ -72,22 +71,20 @@ function parseArgs(raw: string | undefined): Record<string, unknown> {
   }
 }
 
-function fileFromArgs(args: Record<string, unknown>): string {
-  const keys = ['path', 'file_path', 'filePath', 'filepath', 'filename', 'file', 'target']
+function firstString(args: Record<string, unknown>, keys: string[], max: number): string {
   for (const key of keys) {
     const value = args[key]
-    if (typeof value === 'string' && value !== '') return short(value, 42)
+    if (typeof value === 'string' && value !== '') return short(value, max)
   }
   return ''
 }
 
+function fileFromArgs(args: Record<string, unknown>): string {
+  return firstString(args, ['path', 'file_path', 'filePath', 'filepath', 'filename', 'file', 'target'], 42)
+}
+
 function queryFromArgs(args: Record<string, unknown>): string {
-  const keys = ['query', 'q', 'url', 'command', 'cmd', 'pattern', 'prompt']
-  for (const key of keys) {
-    const value = args[key]
-    if (typeof value === 'string' && value !== '') return short(value, 42)
-  }
-  return ''
+  return firstString(args, ['query', 'q', 'url', 'command', 'cmd', 'pattern', 'prompt'], 42)
 }
 
 function classifyTool(name: string): OfficeZone {
@@ -108,13 +105,16 @@ function latestTool(snapshot: any): { name: string; argsRaw: string; isError?: b
       argsRaw: typeof call?.argsRaw === 'string' ? call.argsRaw : '',
     }
   }
+
   const nodes = Array.isArray(snapshot?.nodes) ? snapshot.nodes : []
   for (let i = nodes.length - 1; i >= Math.max(0, nodes.length - 18); i -= 1) {
     const node = nodes[i]
     if (node?.kind !== 'tool-result') continue
-    const name = typeof node.call?.name === 'string' ? node.call.name : 'tool'
-    const argsRaw = typeof node.call?.argsRaw === 'string' ? node.call.argsRaw : ''
-    return { name, argsRaw, isError: Boolean(node.isError) }
+    return {
+      name: typeof node.call?.name === 'string' ? node.call.name : 'tool',
+      argsRaw: typeof node.call?.argsRaw === 'string' ? node.call.argsRaw : '',
+      isError: Boolean(node.isError),
+    }
   }
   return null
 }
@@ -129,7 +129,7 @@ function latestFiles(snapshot: any): { reading: string; editing: string } {
     }
   }
   const nodes = Array.isArray(snapshot?.nodes) ? snapshot.nodes : []
-  for (let i = nodes.length - 1; i >= Math.max(0, nodes.length - 28); i -= 1) {
+  for (let i = nodes.length - 1; i >= Math.max(0, nodes.length - 32); i -= 1) {
     const node = nodes[i]
     if (node?.kind === 'tool-result' && typeof node.call?.name === 'string') {
       calls.push({ name: node.call.name, argsRaw: typeof node.call.argsRaw === 'string' ? node.call.argsRaw : '' })
@@ -178,34 +178,50 @@ export function deriveAgentModel(summary: any, snapshot: any, idleEpoch: number)
   const running = Boolean(summary?.running ?? snapshot?.running)
   const completed = Boolean(summary?.completed)
   const isSubagent = summary?.origin === 'subagent' || summary?.parentId !== undefined || (snapshot?.subagent ?? null) !== null
+
   let zone: OfficeZone = 'desk'
-  let pose: AgentPose = 'idle'
+  let pose: AgentPose = 'idleDesk'
   let statusLabel = 'Idle'
   let statusTone: AgentModel['statusTone'] = 'gray'
+
   if (hasRecentError(snapshot)) {
     pose = 'error'; statusLabel = 'Error'; statusTone = 'red'
   } else if (pendingInteraction !== undefined && pendingInteraction !== null) {
     zone = 'boss'; pose = 'approval'; statusLabel = 'Need you'; statusTone = 'amber'
   } else if (tool !== null && running) {
-    zone = classifyTool(tool.name); pose = zone === 'desk' ? 'thinking' : 'walking'; statusLabel = zone === 'desk' ? 'Working' : `Using ${tool.name}`; statusTone = 'blue'
+    zone = classifyTool(tool.name)
+    pose = zone === 'desk' ? 'thinking' : zone === 'break' ? 'break' : 'tool'
+    statusLabel = zone === 'desk' ? 'Working' : zone === 'collab' ? 'Calling coworker' : `Using ${tool.name}`
+    statusTone = 'blue'
   } else if (running) {
     pose = 'thinking'; statusLabel = 'Thinking'; statusTone = 'green'
   } else if (completed) {
     pose = 'completed'; statusLabel = 'Done'; statusTone = 'green'
-  } else if (hash(`${id}:${idleEpoch}`) % 5 === 0) {
-    zone = 'break'; pose = 'walking'; statusLabel = 'Coffee break'; statusTone = 'gray'
+  } else if (hash(`${id}:${idleEpoch}`) % 6 === 0) {
+    zone = 'break'; pose = 'break'; statusLabel = 'Coffee break'; statusTone = 'gray'
   }
-  if (tool !== null && classifyTool(tool.name) === 'collab' && running) {
-    zone = 'collab'; pose = 'walking'; statusLabel = 'Calling a coworker'; statusTone = 'blue'
-  }
+
   const args = tool === null ? {} : parseArgs(tool.argsRaw)
   const detail = queryFromArgs(args)
   const toolDetail = tool === null ? '—' : short(`${tool.name}${detail ? ` · ${detail}` : ''}`, 48)
+
   return {
-    id, name: displayTitle, species: identity.species, accent: identity.accent, pose, zone,
-    statusLabel, statusTone, running, completed, isSubagent,
+    id,
+    name: displayTitle,
+    species: identity.species,
+    accent: identity.accent,
+    pose,
+    zone,
+    statusLabel,
+    statusTone,
+    running,
+    completed,
+    isSubagent,
     summary: {
-      task: latestTask(snapshot, displayTitle), reading: files.reading || '—', editing: files.editing || '—', tool: toolDetail,
+      task: latestTask(snapshot, displayTitle),
+      reading: files.reading || '—',
+      editing: files.editing || '—',
+      tool: toolDetail,
       next: pendingInteraction ? 'Waiting for your input' : running ? 'Continue current turn' : completed ? 'Ready for next task' : 'Waiting',
     },
   }
