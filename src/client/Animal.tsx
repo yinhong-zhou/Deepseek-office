@@ -2,7 +2,7 @@ import React, { type ReactNode } from 'react'
 import styles from './Office.module.css'
 
 export type Species = 'cow' | 'horse' | 'sheep'
-export type AgentPose = 'idle' | 'thinking' | 'walking' | 'error' | 'completed' | 'approval'
+export type AgentPose = 'idleDesk' | 'thinking' | 'walking' | 'tool' | 'break' | 'approval' | 'error' | 'completed'
 export type Facing = 'front' | 'back'
 
 export interface AnimalProps {
@@ -13,87 +13,212 @@ export interface AnimalProps {
   compact?: boolean
 }
 
-function CommonBody({ accent, pose, children }: { accent: string; pose: AgentPose; children: ReactNode }) {
-  const armLeft = pose === 'error' ? 'M28 70 Q12 54 25 41' : pose === 'completed' ? 'M28 72 Q12 54 12 35' : 'M29 70 Q18 76 18 90'
-  const armRight = pose === 'error' ? 'M72 70 Q88 54 75 41' : pose === 'completed' ? 'M72 72 Q88 54 88 35' : 'M71 70 Q82 76 82 90'
+interface PoseGeometry {
+  bodyY: number
+  headTilt: number
+  leftArm: string
+  rightArm: string
+  leftLeg: string
+  rightLeg: string
+}
+
+const POSES: Record<AgentPose, PoseGeometry> = {
+  idleDesk: {
+    bodyY: 3,
+    headTilt: -2,
+    leftArm: 'M38 82 Q27 88 27 105',
+    rightArm: 'M82 82 Q93 88 93 105',
+    leftLeg: 'M49 119 L47 132',
+    rightLeg: 'M71 119 L73 132',
+  },
+  thinking: {
+    bodyY: 1,
+    headTilt: 0,
+    leftArm: 'M38 82 Q31 91 43 101',
+    rightArm: 'M82 82 Q89 91 77 101',
+    leftLeg: 'M49 119 L47 132',
+    rightLeg: 'M71 119 L73 132',
+  },
+  walking: {
+    bodyY: 0,
+    headTilt: 1,
+    leftArm: 'M38 82 Q22 88 27 105',
+    rightArm: 'M82 82 Q98 73 94 58',
+    leftLeg: 'M50 119 Q44 126 40 133',
+    rightLeg: 'M70 119 Q78 126 82 132',
+  },
+  tool: {
+    bodyY: 0,
+    headTilt: -1,
+    leftArm: 'M38 82 Q27 76 32 66',
+    rightArm: 'M82 82 Q93 76 88 66',
+    leftLeg: 'M49 119 L47 132',
+    rightLeg: 'M71 119 L73 132',
+  },
+  break: {
+    bodyY: 0,
+    headTilt: 2,
+    leftArm: 'M38 82 Q26 89 27 104',
+    rightArm: 'M82 82 Q92 78 87 70',
+    leftLeg: 'M49 119 L47 132',
+    rightLeg: 'M71 119 L73 132',
+  },
+  approval: {
+    bodyY: -1,
+    headTilt: -5,
+    leftArm: 'M38 82 Q28 91 30 105',
+    rightArm: 'M82 82 Q92 91 90 105',
+    leftLeg: 'M49 119 L48 132',
+    rightLeg: 'M71 119 L72 132',
+  },
+  error: {
+    bodyY: 2,
+    headTilt: 0,
+    leftArm: 'M38 82 Q18 65 34 45',
+    rightArm: 'M82 82 Q102 65 86 45',
+    leftLeg: 'M49 119 L45 132',
+    rightLeg: 'M71 119 L75 132',
+  },
+  completed: {
+    bodyY: -2,
+    headTilt: 0,
+    leftArm: 'M38 82 Q20 62 22 42',
+    rightArm: 'M82 82 Q100 62 98 42',
+    leftLeg: 'M49 119 L43 132',
+    rightLeg: 'M71 119 L77 132',
+  },
+}
+
+function Face({ facing, pose }: { facing: Facing; pose: AgentPose }) {
+  if (facing === 'back') {
+    return <>
+      <path d="M43 47 Q60 36 77 47" fill="none" stroke="#d8d6cf" strokeWidth="3" strokeLinecap="round" />
+      <path d="M48 52 Q60 45 72 52" fill="none" stroke="#ece9e0" strokeWidth="2" strokeLinecap="round" />
+    </>
+  }
+
+  const sleepy = pose === 'idleDesk'
+  const error = pose === 'error'
+  const done = pose === 'completed'
   return <>
-    <ellipse cx="50" cy="111" rx="30" ry="5" fill="rgba(40,55,75,.10)" />
-    <path d="M28 61 Q23 70 27 94 Q31 106 43 108 L57 108 Q69 106 73 94 Q77 70 72 61 Z" fill="#fbfaf6" stroke="#1f2329" strokeWidth="3.8" strokeLinejoin="round" />
-    <path className={styles.animalArm} d={armLeft} fill="none" stroke="#1f2329" strokeWidth="8" strokeLinecap="round" />
-    <path className={styles.animalArm} d={armRight} fill="none" stroke="#1f2329" strokeWidth="8" strokeLinecap="round" />
-    <path d="M38 106 L38 113" stroke="#1f2329" strokeWidth="9" strokeLinecap="round" />
-    <path d="M62 106 L62 113" stroke="#1f2329" strokeWidth="9" strokeLinecap="round" />
-    <path d="M27 64 Q50 76 73 64" fill="none" stroke={accent} strokeWidth="7" strokeLinecap="round" />
-    <path d="M67 65 Q76 71 72 80" fill={accent} stroke="#1f2329" strokeWidth="2.5" strokeLinejoin="round" />
-    <path d="M47 72 L47 92 L57 92 L57 72" fill="none" stroke="#1f2329" strokeWidth="2" />
-    <rect x="43" y="87" width="14" height="16" rx="2.8" fill="#fff" stroke="#1f2329" strokeWidth="2.4" />
-    {children}
+    {sleepy ? <>
+      <path d="M46 48 Q50 51 54 48" fill="none" stroke="#202329" strokeWidth="2.8" strokeLinecap="round" />
+      <path d="M66 48 Q70 51 74 48" fill="none" stroke="#202329" strokeWidth="2.8" strokeLinecap="round" />
+    </> : <>
+      <ellipse cx="50" cy="48" rx={error ? 3.6 : 3.2} ry={error ? 5.2 : 4.5} fill="#17191d" />
+      <ellipse cx="70" cy="48" rx={error ? 3.6 : 3.2} ry={error ? 5.2 : 4.5} fill="#17191d" />
+      {!error ? <><circle cx="51" cy="46.5" r="1" fill="#fff" /><circle cx="71" cy="46.5" r="1" fill="#fff" /></> : null}
+    </>}
+    {error ? <path d="M53 62 Q60 56 67 62" fill="none" stroke="#202329" strokeWidth="2.7" strokeLinecap="round" /> : done ? <path d="M52 58 Q60 67 68 58" fill="none" stroke="#202329" strokeWidth="2.7" strokeLinecap="round" /> : <path d="M55 60 Q60 64 65 60" fill="none" stroke="#202329" strokeWidth="2.4" strokeLinecap="round" />}
   </>
 }
 
-function Cow({ accent, pose, facing }: Omit<AnimalProps, 'species' | 'compact'>) {
-  return <CommonBody accent={accent} pose={pose}>
-    <path d="M34 26 Q28 15 33 8 Q38 16 39 24" fill="#e9dbc7" stroke="#1f2329" strokeWidth="3" />
-    <path d="M66 26 Q72 15 67 8 Q62 16 61 24" fill="#e9dbc7" stroke="#1f2329" strokeWidth="3" />
-    <path d="M28 31 Q15 24 13 32 Q17 40 31 39" fill="#fbfaf6" stroke="#1f2329" strokeWidth="3" />
-    <path d="M72 31 Q85 24 87 32 Q83 40 69 39" fill="#fbfaf6" stroke="#1f2329" strokeWidth="3" />
-    <path d="M25 31 Q25 18 39 15 Q50 9 61 15 Q75 18 75 33 L72 58 Q66 66 50 66 Q34 66 28 58 Z" fill="#fbfaf6" stroke="#1f2329" strokeWidth="3.8" />
-    <path d="M47 15 Q51 4 57 16 Q53 20 47 15" fill="#fbfaf6" stroke="#1f2329" strokeWidth="3" />
-    <path d="M60 18 Q72 23 70 39 Q63 44 57 35 Q55 26 60 18" fill="#3d4146" />
-    <path d="M26 76 Q32 70 36 79 Q34 89 27 91" fill="#3d4146" />
-    <path d="M67 84 Q75 81 73 94 Q68 99 63 94" fill="#3d4146" />
+function CowHead({ facing, pose }: { facing: Facing; pose: AgentPose }) {
+  return <>
+    <path d="M39 30 Q31 17 37 11 Q44 18 45 31" fill="#ead9be" stroke="#202329" strokeWidth="3.2" strokeLinejoin="round" />
+    <path d="M81 30 Q89 17 83 11 Q76 18 75 31" fill="#ead9be" stroke="#202329" strokeWidth="3.2" strokeLinejoin="round" />
+    <path d="M35 34 Q20 28 19 37 Q25 45 39 43" fill="#fbfaf5" stroke="#202329" strokeWidth="3.2" />
+    <path d="M85 34 Q100 28 101 37 Q95 45 81 43" fill="#fbfaf5" stroke="#202329" strokeWidth="3.2" />
+    <path d="M34 33 Q36 19 49 17 Q60 9 73 17 Q86 21 86 40 L82 66 Q75 75 60 75 Q45 75 38 66 Q32 51 34 33 Z" fill="#fbfaf5" stroke="#202329" strokeWidth="4" strokeLinejoin="round" />
+    <path d="M57 17 Q61 6 68 18 Q64 23 57 17" fill="#fbfaf5" stroke="#202329" strokeWidth="3" />
+    <path d="M73 20 Q84 24 82 41 Q75 47 68 38 Q66 29 73 20" fill="#3d4146" />
     {facing === 'front' ? <>
-      <ellipse cx="50" cy="48" rx="25" ry="16" fill="#f7e2d7" stroke="#1f2329" strokeWidth="3" />
-      <ellipse cx="40" cy="34" rx="3.2" ry="5.7" fill="#111" /><ellipse cx="60" cy="34" rx="3.2" ry="5.7" fill="#111" />
-      <circle cx="42" cy="47" r="1.8" fill="#111" /><circle cx="58" cy="47" r="1.8" fill="#111" />
-      <path d="M45 54 Q50 59 55 54" fill="none" stroke="#1f2329" strokeWidth="2.4" strokeLinecap="round" />
-    </> : <>
-      <path d="M35 40 Q50 28 65 40" fill="none" stroke="#d9d4ca" strokeWidth="3" strokeLinecap="round" />
-      <path d="M57 22 Q66 29 67 39" fill="none" stroke="#3d4146" strokeWidth="8" strokeLinecap="round" />
-    </>}
-    <path d="M73 88 Q90 86 87 102" fill="none" stroke="#1f2329" strokeWidth="3" strokeLinecap="round" />
-    <path d="M87 101 Q94 99 91 108 Q86 112 83 105 Z" fill="#3d4146" stroke="#1f2329" strokeWidth="2" />
-  </CommonBody>
+      <ellipse cx="60" cy="59" rx="25" ry="16" fill="#f5dfd4" stroke="#202329" strokeWidth="3" />
+      <Face facing={facing} pose={pose} />
+      <circle cx="51" cy="58" r="1.8" fill="#202329" /><circle cx="69" cy="58" r="1.8" fill="#202329" />
+    </> : <Face facing={facing} pose={pose} />}
+  </>
 }
 
-function Horse({ accent, pose, facing }: Omit<AnimalProps, 'species' | 'compact'>) {
-  return <CommonBody accent={accent} pose={pose}>
-    <path d="M31 30 Q20 13 29 9 Q37 17 39 28" fill="#c99c69" stroke="#1f2329" strokeWidth="3" />
-    <path d="M69 30 Q80 13 71 9 Q63 17 61 28" fill="#c99c69" stroke="#1f2329" strokeWidth="3" />
-    <path d="M26 30 Q29 17 40 14 Q50 8 63 16 Q74 22 73 41 L68 61 Q61 67 50 67 Q39 67 32 61 Q25 49 26 30 Z" fill="#cda577" stroke="#1f2329" strokeWidth="3.8" />
-    <path d="M37 16 Q49 5 62 16 Q58 25 47 24 Q43 32 36 28" fill="#8f633f" stroke="#1f2329" strokeWidth="2.5" />
-    <path d="M69 26 Q77 37 69 56" fill="none" stroke="#8f633f" strokeWidth="7" strokeLinecap="round" />
-    <path d="M26 73 Q33 68 36 77 Q34 87 27 91" fill="#9b6b45" /><path d="M66 86 Q74 83 73 94 Q69 100 63 95" fill="#9b6b45" />
+function HorseHead({ facing, pose }: { facing: Facing; pose: AgentPose }) {
+  return <>
+    <path d="M39 32 Q26 15 35 10 Q45 18 47 32" fill="#caa174" stroke="#202329" strokeWidth="3.2" />
+    <path d="M81 32 Q94 15 85 10 Q75 18 73 32" fill="#caa174" stroke="#202329" strokeWidth="3.2" />
+    <path d="M35 31 Q38 19 50 16 Q61 10 75 18 Q87 24 85 43 L80 68 Q72 76 60 76 Q48 76 40 68 Q32 52 35 31 Z" fill="#cda477" stroke="#202329" strokeWidth="4" />
+    <path d="M47 18 Q60 6 74 18 Q70 27 59 26 Q54 35 46 30" fill="#87603f" stroke="#202329" strokeWidth="2.6" />
+    <path d="M79 26 Q90 39 80 60" fill="none" stroke="#87603f" strokeWidth="7" strokeLinecap="round" />
     {facing === 'front' ? <>
-      <path d="M40 21 L43 58 L58 58 L61 22 Q50 17 40 21" fill="#f8f1e7" opacity=".94" />
-      <ellipse cx="50" cy="49" rx="23" ry="15" fill="#f8f1e7" stroke="#1f2329" strokeWidth="3" />
-      <ellipse cx="40" cy="34" rx="3.1" ry="5.8" fill="#111" /><ellipse cx="60" cy="34" rx="3.1" ry="5.8" fill="#111" />
-      <circle cx="42" cy="48" r="1.8" fill="#111" /><circle cx="58" cy="48" r="1.8" fill="#111" />
-      <path d="M45 55 Q50 59 55 55" fill="none" stroke="#1f2329" strokeWidth="2.4" strokeLinecap="round" />
-    </> : <path d="M37 20 Q50 13 63 20" fill="none" stroke="#8f633f" strokeWidth="8" strokeLinecap="round" />}
-    <path d="M73 88 Q86 88 86 99" fill="none" stroke="#1f2329" strokeWidth="3" strokeLinecap="round" />
-    <path d="M84 97 Q94 96 91 106 Q84 110 80 103 Z" fill="#8f633f" stroke="#1f2329" strokeWidth="2" />
-  </CommonBody>
+      <path d="M51 22 L54 65 L71 65 L73 23 Q61 17 51 22" fill="#f8efe5" opacity=".95" />
+      <ellipse cx="60" cy="60" rx="23" ry="15" fill="#f8efe5" stroke="#202329" strokeWidth="3" />
+      <Face facing={facing} pose={pose} />
+      <circle cx="51" cy="59" r="1.8" fill="#202329" /><circle cx="69" cy="59" r="1.8" fill="#202329" />
+    </> : <Face facing={facing} pose={pose} />}
+  </>
 }
 
-function Sheep({ accent, pose, facing }: Omit<AnimalProps, 'species' | 'compact'>) {
-  return <CommonBody accent={accent} pose={pose}>
-    <path d="M31 29 Q18 23 16 32 Q21 40 34 37" fill="#fbfaf6" stroke="#1f2329" strokeWidth="3" />
-    <path d="M69 29 Q82 23 84 32 Q79 40 66 37" fill="#fbfaf6" stroke="#1f2329" strokeWidth="3" />
-    <path d="M31 25 Q23 13 30 9 Q39 13 40 26" fill="#d8c6ac" stroke="#1f2329" strokeWidth="3" />
-    <path d="M69 25 Q77 13 70 9 Q61 13 60 26" fill="#d8c6ac" stroke="#1f2329" strokeWidth="3" />
-    <path d="M24 34 Q20 23 30 20 Q31 10 41 13 Q50 6 57 14 Q69 12 69 23 Q79 27 75 38 Q79 49 69 55 Q65 66 52 63 Q40 68 33 59 Q20 57 24 45 Q17 39 24 34 Z" fill="#fffdf8" stroke="#1f2329" strokeWidth="3.8" strokeLinejoin="round" />
-    <path d="M25 75 Q32 69 36 79 Q34 89 27 91" fill="#8b7b6a" /><path d="M66 86 Q74 83 73 94 Q69 100 63 95" fill="#8b7b6a" />
+function SheepHead({ facing, pose }: { facing: Facing; pose: AgentPose }) {
+  return <>
+    <path d="M38 31 Q25 18 32 11 Q42 15 46 30" fill="#d9c6aa" stroke="#202329" strokeWidth="3.2" />
+    <path d="M82 31 Q95 18 88 11 Q78 15 74 30" fill="#d9c6aa" stroke="#202329" strokeWidth="3.2" />
+    <path d="M38 35 Q23 29 21 38 Q27 46 41 43" fill="#fbfaf5" stroke="#202329" strokeWidth="3.2" />
+    <path d="M82 35 Q97 29 99 38 Q93 46 79 43" fill="#fbfaf5" stroke="#202329" strokeWidth="3.2" />
+    <path d="M33 37 Q27 25 39 22 Q39 11 51 14 Q60 5 69 15 Q81 13 81 25 Q92 29 87 40 Q92 52 81 58 Q77 72 63 69 Q49 75 41 64 Q28 63 31 50 Q23 43 33 37 Z" fill="#fffdf8" stroke="#202329" strokeWidth="4" strokeLinejoin="round" />
     {facing === 'front' ? <>
-      <ellipse cx="50" cy="43" rx="18" ry="18" fill="#f7dfd4" />
-      <ellipse cx="42" cy="39" rx="3" ry="5.5" fill="#111" /><ellipse cx="58" cy="39" rx="3" ry="5.5" fill="#111" />
-      <path d="M48 46 L52 46 L50 49 Z" fill="#e79096" />
-      <path d="M45 53 Q50 58 55 53" fill="none" stroke="#1f2329" strokeWidth="2.4" strokeLinecap="round" />
-    </> : <path d="M33 31 Q50 22 67 31" fill="none" stroke="#e7e1d7" strokeWidth="5" strokeLinecap="round" />}
-  </CommonBody>
+      <ellipse cx="60" cy="52" rx="19" ry="20" fill="#f6ddd3" />
+      <Face facing={facing} pose={pose} />
+      <path d="M58 58 L62 58 L60 62 Z" fill="#df9298" />
+    </> : <Face facing={facing} pose={pose} />}
+  </>
+}
+
+function Mug({ accent }: { accent: string }) {
+  return <g className={styles.animalMug}>
+    <rect x="86" y="66" width="12" height="14" rx="3" fill="#fffdf8" stroke="#202329" strokeWidth="2.4" />
+    <path d="M98 69 Q106 70 103 77 Q101 80 98 79" fill="none" stroke="#202329" strokeWidth="2.3" />
+    <path d="M89 64 Q92 60 95 64" fill="none" stroke={accent} strokeWidth="1.8" strokeLinecap="round" opacity=".8" />
+  </g>
+}
+
+function Effects({ pose, accent }: { pose: AgentPose; accent: string }) {
+  if (pose === 'error') return <g className={styles.animalEffect}>
+    <path d="M94 25 Q103 31 98 39" fill="none" stroke="#e45d65" strokeWidth="3" strokeLinecap="round" />
+    <circle cx="99" cy="18" r="3" fill="#e45d65" />
+  </g>
+  if (pose === 'completed') return <g className={styles.animalEffect} fill={accent}>
+    <path d="M19 27 l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" opacity=".75" />
+    <path d="M102 22 l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" opacity=".55" />
+  </g>
+  if (pose === 'approval') return <g className={styles.animalEffect}>
+    <path d="M96 22 Q106 15 110 25" fill="none" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
+    <circle cx="111" cy="28" r="2.4" fill={accent} />
+  </g>
+  return null
+}
+
+function CommonBody({ accent, pose, children }: { accent: string; pose: AgentPose; children: ReactNode }) {
+  const p = POSES[pose]
+  return <>
+    <ellipse className={styles.animalShadow} cx="60" cy="136" rx="32" ry="5.5" fill="rgba(35,44,58,.12)" />
+    <g className={styles.animalLegs}>
+      <path d={p.leftLeg} fill="none" stroke="#202329" strokeWidth="9" strokeLinecap="round" />
+      <path d={p.rightLeg} fill="none" stroke="#202329" strokeWidth="9" strokeLinecap="round" />
+      <path d="M39 132 Q47 137 54 132" fill="#4d5158" stroke="#202329" strokeWidth="2.2" strokeLinejoin="round" />
+      <path d="M66 132 Q73 137 81 132" fill="#4d5158" stroke="#202329" strokeWidth="2.2" strokeLinejoin="round" />
+    </g>
+    <g className={styles.animalBody} transform={`translate(0 ${p.bodyY})`}>
+      <path d="M38 73 Q32 82 35 107 Q39 120 53 122 L67 122 Q81 120 85 107 Q88 82 82 73 Z" fill="#fbfaf5" stroke="#202329" strokeWidth="4" strokeLinejoin="round" />
+      <path className={styles.animalArmLeft} d={p.leftArm} fill="none" stroke="#202329" strokeWidth="8.5" strokeLinecap="round" />
+      <path className={styles.animalArmRight} d={p.rightArm} fill="none" stroke="#202329" strokeWidth="8.5" strokeLinecap="round" />
+      <path d="M36 76 Q60 89 84 76" fill="none" stroke={accent} strokeWidth="7.5" strokeLinecap="round" />
+      <path d="M76 78 Q88 83 83 94" fill={accent} stroke="#202329" strokeWidth="2.3" strokeLinejoin="round" />
+      <path d="M57 85 L57 103 L67 103 L67 85" fill="none" stroke="#202329" strokeWidth="2" />
+      <rect x="53" y="99" width="18" height="19" rx="3.2" fill="#fff" stroke="#202329" strokeWidth="2.4" />
+      <path d="M57 105 H67" stroke={accent} strokeWidth="2.2" strokeLinecap="round" />
+      <g className={styles.animalHead} style={{ transform: `rotate(${p.headTilt}deg)`, transformOrigin: '60px 69px' }}>{children}</g>
+      {pose === 'break' ? <Mug accent={accent} /> : null}
+      <Effects pose={pose} accent={accent} />
+    </g>
+  </>
 }
 
 export function Animal({ species, accent, pose, facing = 'front', compact = false }: AnimalProps) {
-  const body = species === 'cow' ? <Cow accent={accent} pose={pose} facing={facing} /> : species === 'horse' ? <Horse accent={accent} pose={pose} facing={facing} /> : <Sheep accent={accent} pose={pose} facing={facing} />
-  return <svg className={`${styles.animal} ${styles[`pose_${pose}`]} ${compact ? styles.animalCompact : ''}`} viewBox="0 0 100 120" role="img" aria-label={`${species} office worker`}>{body}</svg>
+  const head = species === 'cow' ? <CowHead facing={facing} pose={pose} /> : species === 'horse' ? <HorseHead facing={facing} pose={pose} /> : <SheepHead facing={facing} pose={pose} />
+  return <svg
+    className={`${styles.animal} ${styles[`pose_${pose}`]} ${compact ? styles.animalCompact : ''}`}
+    viewBox="0 0 120 142"
+    role="img"
+    aria-label={`${species} office worker`}
+  >
+    <CommonBody accent={accent} pose={pose}>{head}</CommonBody>
+  </svg>
 }
