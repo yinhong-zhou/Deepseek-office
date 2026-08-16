@@ -1,14 +1,17 @@
 import React, { type ReactNode } from 'react'
 import styles from './Office.module.css'
+import polish from './OfficePolish.module.css'
 
 export type Species = 'cow' | 'horse' | 'sheep'
 export type AgentPose = 'idleDesk' | 'thinking' | 'walking' | 'tool' | 'break' | 'approval' | 'error' | 'completed'
 export type Facing = 'front' | 'back'
+export type AgentActivity = 'desk' | 'search' | 'terminal' | 'collab' | 'break' | 'boss'
 
 export interface AnimalProps {
   species: Species
   accent: string
   pose: AgentPose
+  activity?: AgentActivity
   facing?: Facing
   compact?: boolean
 }
@@ -24,50 +27,50 @@ interface PoseGeometry {
 
 const POSES: Record<AgentPose, PoseGeometry> = {
   idleDesk: {
-    bodyY: 3,
-    headTilt: -2,
-    leftArm: 'M38 82 Q27 88 27 105',
-    rightArm: 'M82 82 Q93 88 93 105',
-    leftLeg: 'M49 119 L47 132',
-    rightLeg: 'M71 119 L73 132',
+    bodyY: 8,
+    headTilt: -3,
+    leftArm: 'M38 82 Q30 92 43 100',
+    rightArm: 'M82 82 Q90 92 77 100',
+    leftLeg: 'M49 119 Q43 121 44 130',
+    rightLeg: 'M71 119 Q77 121 76 130',
   },
   thinking: {
-    bodyY: 1,
+    bodyY: 7,
     headTilt: 0,
-    leftArm: 'M38 82 Q31 91 43 101',
-    rightArm: 'M82 82 Q89 91 77 101',
-    leftLeg: 'M49 119 L47 132',
-    rightLeg: 'M71 119 L73 132',
+    leftArm: 'M38 82 Q31 90 45 99',
+    rightArm: 'M82 82 Q89 90 75 99',
+    leftLeg: 'M49 119 Q42 122 44 130',
+    rightLeg: 'M71 119 Q78 122 76 130',
   },
   walking: {
     bodyY: 0,
     headTilt: 1,
-    leftArm: 'M38 82 Q22 88 27 105',
+    leftArm: 'M38 82 Q22 89 27 105',
     rightArm: 'M82 82 Q98 73 94 58',
-    leftLeg: 'M50 119 Q44 126 40 133',
-    rightLeg: 'M70 119 Q78 126 82 132',
+    leftLeg: 'M50 119 Q43 126 38 133',
+    rightLeg: 'M70 119 Q79 126 84 132',
   },
   tool: {
     bodyY: 0,
     headTilt: -1,
-    leftArm: 'M38 82 Q27 76 32 66',
-    rightArm: 'M82 82 Q93 76 88 66',
+    leftArm: 'M38 82 Q28 76 32 66',
+    rightArm: 'M82 82 Q92 76 88 66',
     leftLeg: 'M49 119 L47 132',
     rightLeg: 'M71 119 L73 132',
   },
   break: {
     bodyY: 0,
-    headTilt: 2,
-    leftArm: 'M38 82 Q26 89 27 104',
-    rightArm: 'M82 82 Q92 78 87 70',
+    headTilt: 3,
+    leftArm: 'M38 82 Q27 91 29 104',
+    rightArm: 'M82 82 Q94 77 89 67',
     leftLeg: 'M49 119 L47 132',
     rightLeg: 'M71 119 L73 132',
   },
   approval: {
-    bodyY: -1,
-    headTilt: -5,
-    leftArm: 'M38 82 Q28 91 30 105',
-    rightArm: 'M82 82 Q92 91 90 105',
+    bodyY: -2,
+    headTilt: -9,
+    leftArm: 'M38 82 Q29 92 31 105',
+    rightArm: 'M82 82 Q91 92 89 105',
     leftLeg: 'M49 119 L48 132',
     rightLeg: 'M71 119 L72 132',
   },
@@ -80,13 +83,43 @@ const POSES: Record<AgentPose, PoseGeometry> = {
     rightLeg: 'M71 119 L75 132',
   },
   completed: {
-    bodyY: -2,
+    bodyY: -3,
     headTilt: 0,
     leftArm: 'M38 82 Q20 62 22 42',
     rightArm: 'M82 82 Q100 62 98 42',
     leftLeg: 'M49 119 L43 132',
     rightLeg: 'M71 119 L77 132',
   },
+}
+
+function activityGeometry(pose: AgentPose, activity: AgentActivity): PoseGeometry {
+  const base = POSES[pose]
+  if (pose !== 'tool') return base
+  if (activity === 'search') {
+    return {
+      ...base,
+      headTilt: -3,
+      leftArm: 'M38 82 Q30 70 43 60',
+      rightArm: 'M82 82 Q90 70 77 60',
+    }
+  }
+  if (activity === 'terminal') {
+    return {
+      ...base,
+      headTilt: -5,
+      leftArm: 'M38 82 Q28 88 29 101',
+      rightArm: 'M82 82 Q98 67 101 48',
+    }
+  }
+  if (activity === 'collab') {
+    return {
+      ...base,
+      headTilt: 1,
+      leftArm: 'M38 82 Q34 92 49 94',
+      rightArm: 'M82 82 Q86 92 71 94',
+    }
+  }
+  return base
 }
 
 function Face({ facing, pose }: { facing: Facing; pose: AgentPose }) {
@@ -100,16 +133,28 @@ function Face({ facing, pose }: { facing: Facing; pose: AgentPose }) {
   const sleepy = pose === 'idleDesk'
   const error = pose === 'error'
   const done = pose === 'completed'
+  const approval = pose === 'approval'
+
   return <>
     {sleepy ? <>
-      <path d="M46 48 Q50 51 54 48" fill="none" stroke="#202329" strokeWidth="2.8" strokeLinecap="round" />
-      <path d="M66 48 Q70 51 74 48" fill="none" stroke="#202329" strokeWidth="2.8" strokeLinecap="round" />
+      <path d="M46 49 Q50 52 54 49" fill="none" stroke="#202329" strokeWidth="2.8" strokeLinecap="round" />
+      <path d="M66 49 Q70 52 74 49" fill="none" stroke="#202329" strokeWidth="2.8" strokeLinecap="round" />
+    </> : approval ? <>
+      <ellipse cx="50" cy="48" rx="3.6" ry="5.2" fill="#17191d" />
+      <ellipse cx="70" cy="48" rx="3.6" ry="5.2" fill="#17191d" />
+      <circle cx="50" cy="45.5" r="1.35" fill="#fff" />
+      <circle cx="70" cy="45.5" r="1.35" fill="#fff" />
+      <path d="M44 40 Q50 36 55 39" fill="none" stroke="#202329" strokeWidth="2" strokeLinecap="round" />
+      <path d="M65 39 Q70 36 76 40" fill="none" stroke="#202329" strokeWidth="2" strokeLinecap="round" />
     </> : <>
-      <ellipse cx="50" cy="48" rx={error ? 3.6 : 3.2} ry={error ? 5.2 : 4.5} fill="#17191d" />
-      <ellipse cx="70" cy="48" rx={error ? 3.6 : 3.2} ry={error ? 5.2 : 4.5} fill="#17191d" />
+      <ellipse cx="50" cy="48" rx={error ? 3.7 : 3.2} ry={error ? 5.4 : 4.6} fill="#17191d" />
+      <ellipse cx="70" cy="48" rx={error ? 3.7 : 3.2} ry={error ? 5.4 : 4.6} fill="#17191d" />
       {!error ? <><circle cx="51" cy="46.5" r="1" fill="#fff" /><circle cx="71" cy="46.5" r="1" fill="#fff" /></> : null}
     </>}
-    {error ? <path d="M53 62 Q60 56 67 62" fill="none" stroke="#202329" strokeWidth="2.7" strokeLinecap="round" /> : done ? <path d="M52 58 Q60 67 68 58" fill="none" stroke="#202329" strokeWidth="2.7" strokeLinecap="round" /> : <path d="M55 60 Q60 64 65 60" fill="none" stroke="#202329" strokeWidth="2.4" strokeLinecap="round" />}
+    {error ? <path d="M53 62 Q60 56 67 62" fill="none" stroke="#202329" strokeWidth="2.7" strokeLinecap="round" />
+      : done ? <path d="M52 58 Q60 68 68 58" fill="none" stroke="#202329" strokeWidth="2.8" strokeLinecap="round" />
+      : approval ? <path d="M55 60 Q60 57 65 60" fill="none" stroke="#202329" strokeWidth="2.3" strokeLinecap="round" />
+      : <path d="M55 60 Q60 64 65 60" fill="none" stroke="#202329" strokeWidth="2.4" strokeLinecap="round" />}
   </>
 }
 
@@ -169,7 +214,29 @@ function Mug({ accent }: { accent: string }) {
   </g>
 }
 
-function Effects({ pose, accent }: { pose: AgentPose; accent: string }) {
+function ToolProp({ activity, accent }: { activity: AgentActivity; accent: string }) {
+  if (activity === 'terminal') {
+    return <g className={polish.toolProp}>
+      <rect x="98" y="44" width="12" height="4" rx="2" fill="#f2eadb" stroke="#202329" strokeWidth="1.6" transform="rotate(-20 104 46)" />
+      <circle cx="108" cy="43" r="1.5" fill={accent} />
+    </g>
+  }
+  if (activity === 'collab') {
+    return <g className={polish.toolProp}>
+      <rect x="48" y="87" width="25" height="18" rx="3" fill="#fff" stroke="#202329" strokeWidth="2" />
+      <path d="M53 92 H68 M53 97 H65" stroke={accent} strokeWidth="2" strokeLinecap="round" />
+    </g>
+  }
+  if (activity === 'search') {
+    return <g className={polish.toolProp}>
+      <circle cx="60" cy="86" r="7" fill="none" stroke={accent} strokeWidth="2.5" />
+      <path d="M65 91 L71 97" stroke={accent} strokeWidth="2.5" strokeLinecap="round" />
+    </g>
+  }
+  return null
+}
+
+function Effects({ pose, accent, activity }: { pose: AgentPose; accent: string; activity: AgentActivity }) {
   if (pose === 'error') return <g className={styles.animalEffect}>
     <path d="M94 25 Q103 31 98 39" fill="none" stroke="#e45d65" strokeWidth="3" strokeLinecap="round" />
     <circle cx="99" cy="18" r="3" fill="#e45d65" />
@@ -182,20 +249,27 @@ function Effects({ pose, accent }: { pose: AgentPose; accent: string }) {
     <path d="M96 22 Q106 15 110 25" fill="none" stroke={accent} strokeWidth="2.4" strokeLinecap="round" />
     <circle cx="111" cy="28" r="2.4" fill={accent} />
   </g>
+  if (pose === 'thinking') return <g className={polish.typingEffect} stroke={accent} strokeWidth="2" strokeLinecap="round">
+    <path d="M43 101 l-4 3" /><path d="M77 101 l4 3" />
+  </g>
+  if (pose === 'tool' && activity === 'search') return <g className={polish.searchEffect} fill="none" stroke={accent} strokeWidth="1.8">
+    <circle cx="60" cy="26" r="5" opacity=".45" /><circle cx="60" cy="26" r="10" opacity=".2" />
+  </g>
   return null
 }
 
-function CommonBody({ accent, pose, children }: { accent: string; pose: AgentPose; children: ReactNode }) {
-  const p = POSES[pose]
+function CommonBody({ accent, pose, activity, compact, children }: { accent: string; pose: AgentPose; activity: AgentActivity; compact: boolean; children: ReactNode }) {
+  const p = activityGeometry(pose, activity)
+  const seated = compact && (pose === 'idleDesk' || pose === 'thinking')
   return <>
-    <ellipse className={styles.animalShadow} cx="60" cy="136" rx="32" ry="5.5" fill="rgba(35,44,58,.12)" />
-    <g className={styles.animalLegs}>
+    <ellipse className={styles.animalShadow} cx="60" cy={seated ? 132 : 136} rx={seated ? 27 : 32} ry="5.5" fill="rgba(35,44,58,.12)" />
+    <g className={`${styles.animalLegs} ${seated ? polish.animalLegsSeated : ''}`}>
       <path d={p.leftLeg} fill="none" stroke="#202329" strokeWidth="9" strokeLinecap="round" />
       <path d={p.rightLeg} fill="none" stroke="#202329" strokeWidth="9" strokeLinecap="round" />
       <path d="M39 132 Q47 137 54 132" fill="#4d5158" stroke="#202329" strokeWidth="2.2" strokeLinejoin="round" />
       <path d="M66 132 Q73 137 81 132" fill="#4d5158" stroke="#202329" strokeWidth="2.2" strokeLinejoin="round" />
     </g>
-    <g className={styles.animalBody} transform={`translate(0 ${p.bodyY})`}>
+    <g className={`${styles.animalBody} ${seated ? polish.animalBodySeated : ''}`} transform={`translate(0 ${p.bodyY})`}>
       <path d="M38 73 Q32 82 35 107 Q39 120 53 122 L67 122 Q81 120 85 107 Q88 82 82 73 Z" fill="#fbfaf5" stroke="#202329" strokeWidth="4" strokeLinejoin="round" />
       <path className={styles.animalArmLeft} d={p.leftArm} fill="none" stroke="#202329" strokeWidth="8.5" strokeLinecap="round" />
       <path className={styles.animalArmRight} d={p.rightArm} fill="none" stroke="#202329" strokeWidth="8.5" strokeLinecap="round" />
@@ -203,22 +277,30 @@ function CommonBody({ accent, pose, children }: { accent: string; pose: AgentPos
       <path d="M76 78 Q88 83 83 94" fill={accent} stroke="#202329" strokeWidth="2.3" strokeLinejoin="round" />
       <path d="M57 85 L57 103 L67 103 L67 85" fill="none" stroke="#202329" strokeWidth="2" />
       <rect x="53" y="99" width="18" height="19" rx="3.2" fill="#fff" stroke="#202329" strokeWidth="2.4" />
-      <path d="M57 105 H67" stroke={accent} strokeWidth="2.2" strokeLinecap="round" />
-      <g className={styles.animalHead} style={{ transform: `rotate(${p.headTilt}deg)`, transformOrigin: '60px 69px' }}>{children}</g>
+      <circle cx="62" cy="108" r="2.6" fill={accent} opacity=".7" />
+      <g className={styles.animalHead} style={{ transform: `rotate(${p.headTilt}deg)`, transformOrigin: '60px 72px' }}>
+        {children}
+      </g>
       {pose === 'break' ? <Mug accent={accent} /> : null}
-      <Effects pose={pose} accent={accent} />
+      {pose === 'tool' ? <ToolProp activity={activity} accent={accent} /> : null}
+      <Effects pose={pose} accent={accent} activity={activity} />
     </g>
   </>
 }
 
-export function Animal({ species, accent, pose, facing = 'front', compact = false }: AnimalProps) {
-  const head = species === 'cow' ? <CowHead facing={facing} pose={pose} /> : species === 'horse' ? <HorseHead facing={facing} pose={pose} /> : <SheepHead facing={facing} pose={pose} />
+export function Animal({ species, accent, pose, activity = 'desk', facing = 'front', compact = false }: AnimalProps) {
+  const head = species === 'cow'
+    ? <CowHead facing={facing} pose={pose} />
+    : species === 'horse'
+      ? <HorseHead facing={facing} pose={pose} />
+      : <SheepHead facing={facing} pose={pose} />
+
   return <svg
-    className={`${styles.animal} ${styles[`pose_${pose}`]} ${compact ? styles.animalCompact : ''}`}
-    viewBox="0 0 120 142"
+    className={`${styles.animal} ${styles[`pose_${pose}`] ?? ''} ${polish[`activity_${activity}`] ?? ''} ${compact ? styles.animalCompact : ''}`}
+    viewBox="0 0 120 145"
     role="img"
     aria-label={`${species} office worker`}
   >
-    <CommonBody accent={accent} pose={pose}>{head}</CommonBody>
+    <CommonBody accent={accent} pose={pose} activity={activity} compact={compact}>{head}</CommonBody>
   </svg>
 }
