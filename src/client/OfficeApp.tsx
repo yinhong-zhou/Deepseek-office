@@ -6,8 +6,14 @@ import styles from './Office.module.css'
 import polish from './OfficePolish.module.css'
 
 const MAX_DESKS = 6
+const ONBOARDED_STORAGE_KEY = 'deepseek-office:onboarded-subagents:v1'
 
 type Point = { x: number; y: number }
+type DeskRegistry = {
+  deskBySession: Map<string, number>
+  ownerByDesk: Map<number, string>
+}
+type AssignedAgent = { summary: any; deskIndex: number }
 
 const DESKS: Point[] = [
   { x: 34, y: 49 }, { x: 50, y: 47 }, { x: 66, y: 49 },
@@ -36,6 +42,59 @@ function idSlot(id: string): number {
   return total % SHARED_OFFSETS.length
 }
 
+function loadOnboardedSessions(): Set<string> {
+  try {
+    const raw = window.sessionStorage.getItem(ONBOARDED_STORAGE_KEY)
+    if (!raw) return new Set<string>()
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? new Set(parsed.filter((item): item is string => typeof item === 'string')) : new Set<string>()
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function persistOnboardedSessions(ids: Set<string>): void {
+  try {
+    window.sessionStorage.setItem(ONBOARDED_STORAGE_KEY, JSON.stringify([...ids]))
+  } catch {
+    // Storage can be unavailable in hardened browser contexts; in-memory tracking still works.
+  }
+}
+
+function assignStableDesks(summaries: any[], registry: DeskRegistry): AssignedAgent[] {
+  const visibleIds = new Set(summaries.map(summary => String(summary.id)))
+
+  // A desk remains owned while its session is visible. Reordering the session list
+  // therefore cannot move an existing coworker to another desk.
+  for (const [deskIndex, ownerId] of registry.ownerByDesk) {
+    if (!visibleIds.has(ownerId)) registry.ownerByDesk.delete(deskIndex)
+  }
+
+  return summaries.map(summary => {
+    const id = String(summary.id)
+    const rememberedDesk = registry.deskBySession.get(id)
+    let deskIndex: number | undefined
+
+    if (
+      rememberedDesk !== undefined &&
+      rememberedDesk >= 0 &&
+      rememberedDesk < MAX_DESKS &&
+      (registry.ownerByDesk.get(rememberedDesk) === id || !registry.ownerByDesk.has(rememberedDesk))
+    ) {
+      deskIndex = rememberedDesk
+    }
+
+    if (deskIndex === undefined) {
+      deskIndex = DESKS.findIndex((_, index) => !registry.ownerByDesk.has(index))
+      if (deskIndex < 0) deskIndex = 0
+    }
+
+    registry.deskBySession.set(id, deskIndex)
+    registry.ownerByDesk.set(deskIndex, id)
+    return { summary, deskIndex }
+  })
+}
+
 function useIdleEpoch(): number {
   const [epoch, setEpoch] = React.useState(() => Math.floor(Date.now() / 30000))
   React.useEffect(() => {
@@ -62,13 +121,14 @@ function samePoint(a: Point, b: Point): boolean {
   return Math.abs(a.x - b.x) < 0.05 && Math.abs(a.y - b.y) < 0.05
 }
 
-function useAgentTravel(target: Point, zone: OfficeZone, isSubagent: boolean): { point: Point; moving: boolean; onboarding: boolean } {
-  const [point, setPoint] = React.useState<Point>(() => isSubagent ? NEW_HIRE_ENTRY : target)
+function useAgentTravel(target: Point, zone: OfficeZone, shouldOnboard: boolean): { point: Point; moving: boolean; onboarding: boolean } {
+  const [point, setPoint] = React.useState<Point>(() => shouldOnboard ? NEW_HIRE_ENTRY : target)
   const pointRef = React.useRef(point)
   const zoneRef = React.useRef(zone)
   const firstRef = React.useRef(true)
-  const [moving, setMoving] = React.useState(isSubagent)
-  const [onboarding, setOnboarding] = React.useState(isSubagent)
+  const onboardingStartedRef = React.useRef(false)
+  const [moving, setMoving] = React.useState(shouldOnboard)
+  const [onboarding, setOnboarding] = React.useState(shouldOnboard)
 
   React.useEffect(() => { pointRef.current = point }, [point])
 
@@ -79,18 +139,24 @@ function useAgentTravel(target: Point, zone: OfficeZone, isSubagent: boolean): {
       timers.push(timer)
     }
 
+    if (shouldOnboard && !onboardingStartedRef.current) {
+      onboardingStartedRef.current = true
+      firstRef.current = false
+      zoneRef.current = zone
+      setPoint(NEW_HIRE_ENTRY)
+      setMoving(true)
+      setOnboarding(true)
+      later(() => setPoint(COLLAB_WELCOME), 80)
+      later(() => setPoint(corridorPoint(COLLAB_WELCOME, target)), 560)
+      later(() => setPoint(target), 1030)
+      later(() => { setMoving(false); setOnboarding(false) }, 1580)
+      return () => timers.forEach(timer => window.clearTimeout(timer))
+    }
+
     if (firstRef.current) {
       firstRef.current = false
       zoneRef.current = zone
-      if (isSubagent) {
-        setMoving(true)
-        later(() => setPoint(COLLAB_WELCOME), 80)
-        later(() => setPoint(corridorPoint(COLLAB_WELCOME, target)), 560)
-        later(() => setPoint(target), 1030)
-        later(() => { setMoving(false); setOnboarding(false) }, 1580)
-      } else {
-        setPoint(target)
-      }
+      setPoint(target)
       return () => timers.forEach(timer => window.clearTimeout(timer))
     }
 
@@ -106,7 +172,7 @@ function useAgentTravel(target: Point, zone: OfficeZone, isSubagent: boolean): {
     later(() => setMoving(false), 940)
 
     return () => timers.forEach(timer => window.clearTimeout(timer))
-  }, [isSubagent, target.x, target.y, zone])
+  }, [shouldOnboard, target.x, target.y, zone])
 
   return { point, moving, onboarding }
 }
@@ -158,15 +224,33 @@ function activityForZone(zone: OfficeZone): AgentActivity {
   return zone === 'desk' ? 'desk' : zone
 }
 
-function AgentLive({ ctx, summary, deskIndex, idleEpoch }: { ctx: ClientContext; summary: any; deskIndex: number; idleEpoch: number }) {
+function AgentLive({
+  ctx,
+  summary,
+  deskIndex,
+  idleEpoch,
+  claimOnboarding,
+}: {
+  ctx: ClientContext
+  summary: any
+  deskIndex: number
+  idleEpoch: number
+  claimOnboarding: (id: string) => boolean
+}) {
   const id = String(summary.id) as SessionId
   const snapshot = useSessionSnapshot(ctx, id)
   const model = React.useMemo(() => deriveAgentModel(summary, snapshot, idleEpoch), [summary, snapshot, idleEpoch])
+  const onboardingDecisionRef = React.useRef<boolean | null>(null)
+  if (model.isSubagent && onboardingDecisionRef.current === null) {
+    onboardingDecisionRef.current = claimOnboarding(id)
+  }
+  const shouldOnboard = onboardingDecisionRef.current === true
+
   const desk = DESKS[deskIndex] ?? DESKS[0]!
   const destination = model.zone === 'desk' ? desk : ZONES[model.zone]
   const slot = SHARED_OFFSETS[idSlot(model.id)] ?? { x: 0, y: 0 }
   const target = model.zone === 'desk' ? destination : { x: destination.x + slot.x, y: destination.y + slot.y }
-  const travel = useAgentTravel(target, model.zone, model.isSubagent)
+  const travel = useAgentTravel(target, model.zone, shouldOnboard)
   const renderedPose: AgentPose = travel.moving ? 'walking' : model.pose
   const activity = activityForZone(model.zone)
   const deskFacing = renderedPose === 'thinking' || renderedPose === 'idleDesk'
@@ -300,6 +384,19 @@ function RoomDecor() {
 export function OfficeApp({ ctx }: { ctx: ClientContext }) {
   const [open, setOpen] = React.useState(true)
   const idleEpoch = useIdleEpoch()
+  const deskRegistryRef = React.useRef<DeskRegistry>({ deskBySession: new Map(), ownerByDesk: new Map() })
+  const onboardedSessionsRef = React.useRef<Set<string> | null>(null)
+  if (onboardedSessionsRef.current === null) onboardedSessionsRef.current = loadOnboardedSessions()
+
+  const claimOnboarding = React.useCallback((id: string): boolean => {
+    const seen = onboardedSessionsRef.current ?? new Set<string>()
+    onboardedSessionsRef.current = seen
+    if (seen.has(id)) return false
+    seen.add(id)
+    persistOnboardedSessions(seen)
+    return true
+  }, [])
+
   const list = React.useSyncExternalStore(ctx.sessions.list.subscribe, ctx.sessions.list.getSnapshot, ctx.sessions.list.getSnapshot)
   const summaries = React.useMemo(() => {
     const rows = list.ids
@@ -314,6 +411,15 @@ export function OfficeApp({ ctx }: { ctx: ClientContext }) {
       })
     return rows.slice(0, MAX_DESKS)
   }, [list])
+
+  const assignedAgents = React.useMemo(
+    () => assignStableDesks(summaries, deskRegistryRef.current),
+    [summaries],
+  )
+  const occupiedDeskIndices = React.useMemo(
+    () => assignedAgents.map(agent => agent.deskIndex).sort((a, b) => a - b),
+    [assignedAgents],
+  )
 
   const runningCount = summaries.filter(row => row.running).length
   const hiddenCount = Math.max(0, list.ids.length - summaries.length)
@@ -339,9 +445,16 @@ export function OfficeApp({ ctx }: { ctx: ClientContext }) {
     <main className={styles.officeRoom}>
       <RoomDecor />
       <SearchStation /><TerminalBoard /><CollaborationZone /><BreakZone /><BossZone />
-      {summaries.map((_, index) => <DeskBack key={`desk-back-${index}`} index={index} />)}
-      {summaries.map((summary, index) => <AgentLive key={String(summary.id)} ctx={ctx} summary={summary} deskIndex={index} idleEpoch={idleEpoch} />)}
-      {summaries.map((_, index) => <DeskFront key={`desk-front-${index}`} index={index} />)}
+      {occupiedDeskIndices.map(index => <DeskBack key={`desk-back-${index}`} index={index} />)}
+      {assignedAgents.map(({ summary, deskIndex }) => <AgentLive
+        key={String(summary.id)}
+        ctx={ctx}
+        summary={summary}
+        deskIndex={deskIndex}
+        idleEpoch={idleEpoch}
+        claimOnboarding={claimOnboarding}
+      />)}
+      {occupiedDeskIndices.map(index => <DeskFront key={`desk-front-${index}`} index={index} />)}
       {summaries.length === 0 ? <div className={styles.emptyOffice}>
         <div className={styles.emptyMascot}>☕</div><b>办公室今天很安静</b><span>创建或打开一个会话，第一位牛马羊员工就会来上班。</span>
       </div> : null}
