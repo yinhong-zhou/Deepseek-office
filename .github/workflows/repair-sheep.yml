@@ -16,19 +16,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Decode sheep JPEG and validate artwork
+      - name: Install image verifier
+        run: python -m pip install --quiet pillow
+      - name: Decode and recover sheep JPEG
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          from io import BytesIO
           import base64
+          from PIL import Image, ImageFile
 
           sheep = Path('assets/characters/sheep.jpg')
           raw = sheep.read_bytes()
 
           if not raw.startswith(b'\xff\xd8\xff'):
               compact = b''.join(raw.split())
+              print(f'encoded sheep payload: raw={len(raw)}, compact={len(compact)}, mod4={len(compact) % 4}')
               compact += b'=' * (-len(compact) % 4)
               try:
                   decoded = base64.b64decode(compact, validate=True)
@@ -36,10 +41,25 @@ jobs:
                   raise SystemExit(f'sheep.jpg is neither JPEG nor recoverable Base64: {exc}')
               if not decoded.startswith(b'\xff\xd8\xff'):
                   raise SystemExit('decoded sheep.jpg does not have JPEG SOI magic bytes')
-              if not decoded.endswith(b'\xff\xd9'):
-                  raise SystemExit('decoded sheep.jpg is truncated (missing JPEG EOI bytes)')
-              sheep.write_bytes(decoded)
-              print(f'decoded sheep.jpg: {len(raw)} -> {len(decoded)} bytes')
+
+              # The original bad upload lost the tail of the Base64 text. Pillow can
+              # recover the already-present JPEG scan data, then we re-encode it as
+              # a complete JPEG instead of inventing a new artwork.
+              candidate = decoded if decoded.endswith(b'\xff\xd9') else decoded + b'\xff\xd9'
+              try:
+                  strict = Image.open(BytesIO(candidate))
+                  strict.load()
+                  recovered = strict.convert('RGB')
+                  print('strict JPEG recovery succeeded')
+              except Exception as exc:
+                  print(f'strict recovery failed ({exc}); using Pillow truncated-image recovery')
+                  ImageFile.LOAD_TRUNCATED_IMAGES = True
+                  image = Image.open(BytesIO(candidate))
+                  image.load()
+                  recovered = image.convert('RGB')
+
+              recovered.save(sheep, format='JPEG', quality=95, optimize=True)
+              print(f'recovered sheep.jpg: {recovered.width}x{recovered.height}, {len(raw)} -> {sheep.stat().st_size} bytes')
           else:
               print('sheep.jpg is already a real JPEG')
 
@@ -53,7 +73,9 @@ jobs:
               data = asset.read_bytes()
               if not data.startswith(b'\xff\xd8\xff') or not data.endswith(b'\xff\xd9'):
                   raise SystemExit(f'{asset} is not a complete JPEG')
-              print(f'OK JPEG: {asset} ({len(data)} bytes)')
+              with Image.open(asset) as image:
+                  image.load()
+                  print(f'OK JPEG: {asset} ({image.width}x{image.height}, {len(data)} bytes)')
           PY
       - name: Commit repaired binary
         shell: bash
