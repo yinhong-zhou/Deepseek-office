@@ -48,13 +48,13 @@
 
 ## 安装（源码 / GitHub）
 
-DeepSeek Harness 当前的插件机制是 profile bundle。仓库内已经包含 `dsh.bundle` manifest 与 `cordis.patch.yml`。
+DeepSeek Harness 当前的插件机制是 profile bundle。仓库通过 `package.json` 中的 `dsh.bundle` 配置和 `cordis.patch.yml` 挂载插件。
 
 ### 本地 checkout
 
 ```bash
-git clone https://github.com/yinhong-zhou/Deepseek-office.git
-cd Deepseek-office
+git clone https://github.com/yinhong-zhou/Deepseek-officeUI.git
+cd Deepseek-officeUI
 pnpm install
 pnpm build
 
@@ -65,7 +65,7 @@ dsh --profile demo web
 ### 直接从 GitHub 安装
 
 ```bash
-dsh plugin --profile demo add github:yinhong-zhou/Deepseek-office
+dsh plugin --profile demo add github:yinhong-zhou/Deepseek-officeUI
 ```
 
 DeepSeek Harness 使用 pnpm ≥ 10 时，Git 依赖的 `prepare` 默认需要显式授权。第一次安装如果提示 build 被阻止，请按 dsh / pnpm 输出，把这个包加入对应 profile 的 `pnpm-workspace.yaml`：
