@@ -29,12 +29,15 @@ jobs:
 
           if not raw.startswith(b'\xff\xd8\xff'):
               compact = b''.join(raw.split())
+              compact += b'=' * (-len(compact) % 4)
               try:
                   decoded = base64.b64decode(compact, validate=True)
               except Exception as exc:
-                  raise SystemExit(f'sheep.jpg is neither JPEG nor valid Base64: {exc}')
+                  raise SystemExit(f'sheep.jpg is neither JPEG nor recoverable Base64: {exc}')
               if not decoded.startswith(b'\xff\xd8\xff'):
                   raise SystemExit('decoded sheep.jpg does not have JPEG SOI magic bytes')
+              if not decoded.endswith(b'\xff\xd9'):
+                  raise SystemExit('decoded sheep.jpg is truncated (missing JPEG EOI bytes)')
               sheep.write_bytes(decoded)
               print(f'decoded sheep.jpg: {len(raw)} -> {len(decoded)} bytes')
           else:
@@ -48,8 +51,8 @@ jobs:
           ]
           for asset in assets:
               data = asset.read_bytes()
-              if not data.startswith(b'\xff\xd8\xff'):
-                  raise SystemExit(f'{asset} is not a JPEG (bad magic bytes)')
+              if not data.startswith(b'\xff\xd8\xff') or not data.endswith(b'\xff\xd9'):
+                  raise SystemExit(f'{asset} is not a complete JPEG')
               print(f'OK JPEG: {asset} ({len(data)} bytes)')
           PY
       - name: Commit repaired binary
