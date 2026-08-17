@@ -1,4 +1,4 @@
-name: Inspect artwork mapping
+name: Repair artwork mapping
 
 on:
   push:
@@ -7,60 +7,80 @@ on:
       - '.github/workflows/repair-sheep.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  repair:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install image verifier
         run: python -m pip install --quiet pillow
-      - name: Recover previews
+      - name: Restore four artwork files
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p recovery
           python - <<'PY'
           from pathlib import Path
           from io import BytesIO
           import base64
           from PIL import Image
 
-          # Copy already-valid named assets for visual mapping inspection.
-          for name in ('cow.jpg', 'horse.jpg'):
-              src = Path('assets/characters') / name
-              Path('recovery', 'current-' + name).write_bytes(src.read_bytes())
+          chars = Path('assets/characters')
+          readme = Path('assets/readme')
 
-          # sheep.jpg was accidentally committed as truncated Base64 text.
-          bad = Path('assets/characters/sheep.jpg').read_bytes()
-          compact = b''.join(bad.split())
-          compact += b'=' * (-len(compact) % 4)
-          decoded = base64.b64decode(compact, validate=True)
-          if not decoded.endswith(b'\xff\xd9'):
-              decoded += b'\xff\xd9'
-          image = Image.open(BytesIO(decoded))
-          image.load()
-          image.convert('RGB').save('recovery/from-sheep-slot.jpg', 'JPEG', quality=95, optimize=True)
+          # The original artwork commit shifted the four generated assets by one slot:
+          # concept slot -> cow, cow slot -> horse, horse slot -> sheep,
+          # sheep slot -> concept. Preserve the original image data and put it back.
+          concept_slot = (readme / 'concept.jpg').read_bytes()
+          cow_slot = (chars / 'cow.jpg').read_bytes()
+          horse_slot = (chars / 'horse.jpg').read_bytes()
+          sheep_slot = (chars / 'sheep.jpg').read_bytes()
 
-          # concept.jpg is a 320x320 progressive JPEG whose second DQT payload
-          # lost its final three 0x30 values; insert those bytes before SOF2.
-          concept = Path('assets/readme/concept.jpg').read_bytes()
-          sof2 = concept.find(b'\xff\xc2')
+          # Cow image: valid progressive JPEG except its chroma DQT lost its final
+          # three 0x30 values, making the declared DQT segment swallow SOF2.
+          sof2 = concept_slot.find(b'\xff\xc2')
           if sof2 < 0:
-              raise SystemExit('concept slot has no SOF2 marker to repair')
-          repaired = concept[:sof2] + b'\x30\x30\x30' + concept[sof2:]
-          check = Image.open(BytesIO(repaired))
-          check.load()
-          Path('recovery/from-concept-slot.jpg').write_bytes(repaired)
+              raise SystemExit('cannot locate cow SOF2 marker in concept slot')
+          cow = concept_slot[:sof2] + b'\x30\x30\x30' + concept_slot[sof2:]
 
-          for p in sorted(Path('recovery').glob('*.jpg')):
-              with Image.open(p) as im:
-                  im.load()
-                  print(f'{p.name}: {im.width}x{im.height}')
+          # Horse and sheep images were already valid JPEGs, just under wrong names.
+          horse = cow_slot
+          sheep = horse_slot
+
+          # Concept image was stored as Base64 text with the final padding/EOI lost.
+          compact = b''.join(sheep_slot.split())
+          compact += b'=' * (-len(compact) % 4)
+          concept = base64.b64decode(compact, validate=True)
+          if not concept.startswith(b'\xff\xd8\xff'):
+              raise SystemExit('decoded concept does not start with JPEG magic bytes')
+          if not concept.endswith(b'\xff\xd9'):
+              concept += b'\xff\xd9'
+
+          outputs = {
+              chars / 'cow.jpg': cow,
+              chars / 'horse.jpg': horse,
+              chars / 'sheep.jpg': sheep,
+              readme / 'concept.jpg': concept,
+          }
+
+          for path, payload in outputs.items():
+              if not payload.startswith(b'\xff\xd8\xff') or not payload.endswith(b'\xff\xd9'):
+                  raise SystemExit(f'{path} is not a complete JPEG')
+              with Image.open(BytesIO(payload)) as image:
+                  image.load()
+                  print(f'VALID {path}: {image.width}x{image.height}, {len(payload)} bytes')
+              path.write_bytes(payload)
           PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: artwork-mapping
-          path: recovery
-          if-no-files-found: error
+      - name: Commit repaired artwork
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/characters/cow.jpg assets/characters/horse.jpg assets/characters/sheep.jpg assets/readme/concept.jpg
+          git diff --cached --stat
+          git commit -m 'fix: restore artwork files and correct image mapping'
+          git push origin HEAD:main
