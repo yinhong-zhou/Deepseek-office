@@ -14,7 +14,10 @@ jobs:
         with:
           node-version: '22.19.0'
       - name: Install dependencies
-        run: npm install
+        # npm 10.9.x can crash in Arborist (`edgesOut` of null) while
+        # reconciling this plugin's optional peer deps with its dev deps.
+        # CI only needs a deterministic local build, so skip peer auto-resolution.
+        run: npm install --legacy-peer-deps
       - name: Typecheck
         run: npm run typecheck
       - name: Build
