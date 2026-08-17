@@ -15,9 +15,9 @@
   "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "office", "agent-visualization", "ai-agent", "developer-toy"],
   "license": "MIT",
   "author": "yinhong-zhou",
-  "repository": { "type": "git", "url": "git+https://github.com/yinhong-zhou/Deepseek-office.git" },
-  "homepage": "https://github.com/yinhong-zhou/Deepseek-office#readme",
-  "bugs": { "url": "https://github.com/yinhong-zhou/Deepseek-office/issues" },
+  "repository": { "type": "git", "url": "git+https://github.com/yinhong-zhou/Deepseek-officeUI.git" },
+  "homepage": "https://github.com/yinhong-zhou/Deepseek-officeUI#readme",
+  "bugs": { "url": "https://github.com/yinhong-zhou/Deepseek-officeUI/issues" },
   "engines": { "node": "^22.19.0 || >=24" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
