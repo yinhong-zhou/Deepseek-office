@@ -1,4 +1,4 @@
-name: Inspect artwork recovery
+name: Inspect artwork mapping
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install image verifier
         run: python -m pip install --quiet pillow
-      - name: Recover preview and diagnose concept
+      - name: Recover previews
         shell: bash
         run: |
           set -euo pipefail
@@ -27,6 +27,12 @@ jobs:
           import base64
           from PIL import Image
 
+          # Copy already-valid named assets for visual mapping inspection.
+          for name in ('cow.jpg', 'horse.jpg'):
+              src = Path('assets/characters') / name
+              Path('recovery', 'current-' + name).write_bytes(src.read_bytes())
+
+          # sheep.jpg was accidentally committed as truncated Base64 text.
           bad = Path('assets/characters/sheep.jpg').read_bytes()
           compact = b''.join(bad.split())
           compact += b'=' * (-len(compact) % 4)
@@ -35,64 +41,26 @@ jobs:
               decoded += b'\xff\xd9'
           image = Image.open(BytesIO(decoded))
           image.load()
-          image.convert('RGB').save('recovery/recovered-from-sheep.jpg', 'JPEG', quality=95, optimize=True)
+          image.convert('RGB').save('recovery/from-sheep-slot.jpg', 'JPEG', quality=95, optimize=True)
 
+          # concept.jpg is a 320x320 progressive JPEG whose second DQT payload
+          # lost its final three 0x30 values; insert those bytes before SOF2.
           concept = Path('assets/readme/concept.jpg').read_bytes()
-          Path('recovery/concept-raw.jpg').write_bytes(concept)
+          sof2 = concept.find(b'\xff\xc2')
+          if sof2 < 0:
+              raise SystemExit('concept slot has no SOF2 marker to repair')
+          repaired = concept[:sof2] + b'\x30\x30\x30' + concept[sof2:]
+          check = Image.open(BytesIO(repaired))
+          check.load()
+          Path('recovery/from-concept-slot.jpg').write_bytes(repaired)
 
-          lines = []
-          lines.append(f'sheep raw bytes: {len(bad)}')
-          lines.append(f'sheep decoded dimensions: {image.width}x{image.height}')
-          lines.append(f'concept raw bytes: {len(concept)}')
-          lines.append(f'concept first64: {concept[:64].hex()}')
-          lines.append(f'concept last32: {concept[-32:].hex()}')
-
-          # Best-effort JPEG marker walk for diagnosis.
-          data = concept
-          markers = []
-          if data[:2] == b'\xff\xd8':
-              i = 2
-              while i < len(data) - 1 and len(markers) < 40:
-                  if data[i] != 0xff:
-                      i += 1
-                      continue
-                  while i < len(data) and data[i] == 0xff:
-                      i += 1
-                  if i >= len(data): break
-                  marker = data[i]; i += 1
-                  if marker in (0x00, 0xd8, 0xd9):
-                      markers.append(f'FF{marker:02X}')
-                      continue
-                  if marker in range(0xd0, 0xd8):
-                      markers.append(f'FF{marker:02X}')
-                      continue
-                  if i + 2 > len(data):
-                      markers.append(f'FF{marker:02X}:missing-length')
-                      break
-                  seglen = int.from_bytes(data[i:i+2], 'big')
-                  markers.append(f'FF{marker:02X}({seglen})')
-                  if seglen < 2 or i + seglen > len(data):
-                      markers.append('INVALID/TRUNCATED')
-                      break
-                  if marker == 0xda:
-                      markers.append('SOS')
-                      break
-                  i += seglen
-          lines.append('concept markers: ' + ' '.join(markers))
-
-          try:
-              with Image.open(BytesIO(concept)) as c:
-                  c.load()
-                  lines.append(f'concept Pillow: OK {c.width}x{c.height} {c.format}')
-          except Exception as exc:
-              lines.append(f'concept Pillow: FAIL {exc!r}')
-
-          Path('recovery/diagnostics.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
-          print('\n'.join(lines))
+          for p in sorted(Path('recovery').glob('*.jpg')):
+              with Image.open(p) as im:
+                  im.load()
+                  print(f'{p.name}: {im.width}x{im.height}')
           PY
-          file recovery/* || true
       - uses: actions/upload-artifact@v4
         with:
-          name: artwork-recovery
+          name: artwork-mapping
           path: recovery
           if-no-files-found: error
