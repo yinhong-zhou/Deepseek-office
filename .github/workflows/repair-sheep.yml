@@ -1,0 +1,67 @@
+name: Repair sheep artwork
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/repair-sheep.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decode sheep JPEG and validate artwork
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+
+          sheep = Path('assets/characters/sheep.jpg')
+          raw = sheep.read_bytes()
+
+          if not raw.startswith(b'\xff\xd8\xff'):
+              compact = b''.join(raw.split())
+              try:
+                  decoded = base64.b64decode(compact, validate=True)
+              except Exception as exc:
+                  raise SystemExit(f'sheep.jpg is neither JPEG nor valid Base64: {exc}')
+              if not decoded.startswith(b'\xff\xd8\xff'):
+                  raise SystemExit('decoded sheep.jpg does not have JPEG SOI magic bytes')
+              sheep.write_bytes(decoded)
+              print(f'decoded sheep.jpg: {len(raw)} -> {len(decoded)} bytes')
+          else:
+              print('sheep.jpg is already a real JPEG')
+
+          assets = [
+              Path('assets/characters/cow.jpg'),
+              Path('assets/characters/horse.jpg'),
+              Path('assets/characters/sheep.jpg'),
+              Path('assets/readme/concept.jpg'),
+          ]
+          for asset in assets:
+              data = asset.read_bytes()
+              if not data.startswith(b'\xff\xd8\xff'):
+                  raise SystemExit(f'{asset} is not a JPEG (bad magic bytes)')
+              print(f'OK JPEG: {asset} ({len(data)} bytes)')
+          PY
+      - name: Commit repaired binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- assets/characters/sheep.jpg; then
+            echo 'No repair commit needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/characters/sheep.jpg
+          git commit -m 'fix: store sheep artwork as real JPEG'
+          git push origin HEAD:main
