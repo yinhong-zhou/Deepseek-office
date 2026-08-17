@@ -1,4 +1,4 @@
-name: Repair sheep artwork
+name: Repair artwork binaries
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
       - name: Install image verifier
         run: python -m pip install --quiet pillow
-      - name: Decode and recover sheep JPEG
+      - name: Recover and validate artwork
         shell: bash
         run: |
           set -euo pipefail
@@ -26,6 +26,7 @@ jobs:
           from pathlib import Path
           from io import BytesIO
           import base64
+          import subprocess
           from PIL import Image, ImageFile
 
           sheep = Path('assets/characters/sheep.jpg')
@@ -35,33 +36,46 @@ jobs:
               compact = b''.join(raw.split())
               print(f'encoded sheep payload: raw={len(raw)}, compact={len(compact)}, mod4={len(compact) % 4}')
               compact += b'=' * (-len(compact) % 4)
-              try:
-                  decoded = base64.b64decode(compact, validate=True)
-              except Exception as exc:
-                  raise SystemExit(f'sheep.jpg is neither JPEG nor recoverable Base64: {exc}')
+              decoded = base64.b64decode(compact, validate=True)
               if not decoded.startswith(b'\xff\xd8\xff'):
                   raise SystemExit('decoded sheep.jpg does not have JPEG SOI magic bytes')
-
-              # The original bad upload lost the tail of the Base64 text. Pillow can
-              # recover the already-present JPEG scan data, then we re-encode it as
-              # a complete JPEG instead of inventing a new artwork.
               candidate = decoded if decoded.endswith(b'\xff\xd9') else decoded + b'\xff\xd9'
               try:
-                  strict = Image.open(BytesIO(candidate))
-                  strict.load()
-                  recovered = strict.convert('RGB')
-                  print('strict JPEG recovery succeeded')
+                  image = Image.open(BytesIO(candidate))
+                  image.load()
+                  recovered = image.convert('RGB')
+                  print('strict sheep recovery succeeded')
               except Exception as exc:
-                  print(f'strict recovery failed ({exc}); using Pillow truncated-image recovery')
+                  print(f'strict sheep recovery failed ({exc}); using truncated-image recovery')
                   ImageFile.LOAD_TRUNCATED_IMAGES = True
                   image = Image.open(BytesIO(candidate))
                   image.load()
                   recovered = image.convert('RGB')
-
               recovered.save(sheep, format='JPEG', quality=95, optimize=True)
               print(f'recovered sheep.jpg: {recovered.width}x{recovered.height}, {len(raw)} -> {sheep.stat().st_size} bytes')
-          else:
-              print('sheep.jpg is already a real JPEG')
+
+          concept = Path('assets/readme/concept.jpg')
+          try:
+              with Image.open(concept) as image:
+                  image.load()
+                  print(f'concept.jpg already valid: {image.width}x{image.height}')
+          except Exception as pillow_exc:
+              print(f'Pillow cannot read concept.jpg: {pillow_exc}')
+              tmp = Path('/tmp/concept-recovered.png')
+              proc = subprocess.run(
+                  ['ffmpeg', '-y', '-v', 'warning', '-i', str(concept), '-frames:v', '1', str(tmp)],
+                  text=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+              )
+              print(proc.stdout[-4000:])
+              if proc.returncode != 0 or not tmp.exists():
+                  raise SystemExit('concept.jpg could not be recovered by Pillow or FFmpeg')
+              with Image.open(tmp) as image:
+                  image.load()
+                  recovered_concept = image.convert('RGB')
+              recovered_concept.save(concept, format='JPEG', quality=95, optimize=True)
+              print(f'recovered concept.jpg with FFmpeg: {recovered_concept.width}x{recovered_concept.height}, {concept.stat().st_size} bytes')
 
           assets = [
               Path('assets/characters/cow.jpg'),
@@ -77,16 +91,16 @@ jobs:
                   image.load()
                   print(f'OK JPEG: {asset} ({image.width}x{image.height}, {len(data)} bytes)')
           PY
-      - name: Commit repaired binary
+      - name: Commit repaired binaries
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- assets/characters/sheep.jpg; then
+          if git diff --quiet -- assets/characters/sheep.jpg assets/readme/concept.jpg; then
             echo 'No repair commit needed.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add assets/characters/sheep.jpg
-          git commit -m 'fix: store sheep artwork as real JPEG'
+          git add assets/characters/sheep.jpg assets/readme/concept.jpg
+          git commit -m 'fix: restore artwork as valid JPEG binaries'
           git push origin HEAD:main
